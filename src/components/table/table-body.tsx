@@ -13,6 +13,19 @@ type TableBodyProps<T extends RowData> = {
   table: Table<T>;
 } & React.ComponentPropsWithoutRef<'div'>;
 
+const getCellTitle = (value: unknown) => {
+  if (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return value.toString();
+  }
+
+  return undefined;
+};
+
 const TableBody = <T extends RowData>({
   className,
   emptyPlaceholder,
@@ -82,7 +95,7 @@ const TableBody = <T extends RowData>({
                       ? cell.column.getSize()
                       : undefined,
                 }}
-                title={cell.getValue() as string}
+                title={getCellTitle(cell.getValue())}
                 variant='b2'
               >
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
