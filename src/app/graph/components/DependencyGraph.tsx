@@ -1,5 +1,11 @@
 'use client';
 
+import { Download } from 'lucide-react';
+import * as React from 'react';
+
+import logger from '@/lib/logger';
+
+import { Button } from '@/components/button';
 import { Card, CardContent } from '@/components/card';
 import { Typography } from '@/components/typography';
 
@@ -122,6 +128,109 @@ function edgePath(src: NodePos, tgt: NodePos): string {
   return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
 }
 
+const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
+
+function inlineComputedStyles(source: Element, target: Element) {
+  const computedStyle = window.getComputedStyle(source);
+  const inlineStyle = Array.from(computedStyle)
+    .map(
+      (property) => `${property}:${computedStyle.getPropertyValue(property)}`,
+    )
+    .join(';');
+
+  target.setAttribute('style', inlineStyle);
+
+  Array.from(source.children).forEach((sourceChild, index) => {
+    const targetChild = target.children.item(index);
+    if (targetChild) inlineComputedStyles(sourceChild, targetChild);
+  });
+}
+
+function prepareForeignObjectHtml(svgClone: SVGSVGElement) {
+  svgClone.querySelectorAll('foreignObject *').forEach((element) => {
+    element.setAttribute('xmlns', XHTML_NAMESPACE);
+  });
+}
+
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = src;
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+      } else {
+        reject(new Error('Could not render dependency graph PNG.'));
+      }
+    }, 'image/png');
+  });
+}
+
+async function saveSvgAsPng(svgElement: SVGSVGElement, filename: string) {
+  const clone = svgElement.cloneNode(true) as SVGSVGElement;
+  const viewBox = svgElement.viewBox.baseVal;
+  const width = viewBox.width || svgElement.getBoundingClientRect().width;
+  const height = viewBox.height || svgElement.getBoundingClientRect().height;
+
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('width', String(width));
+  clone.setAttribute('height', String(height));
+
+  const sourceForeignObjects = Array.from(
+    svgElement.querySelectorAll('foreignObject'),
+  );
+  const clonedForeignObjects = Array.from(
+    clone.querySelectorAll('foreignObject'),
+  );
+  sourceForeignObjects.forEach((foreignObject, index) => {
+    const cloneForeignObject = clonedForeignObjects[index];
+    if (!cloneForeignObject) return;
+
+    Array.from(foreignObject.children).forEach((child, childIndex) => {
+      const cloneChild = cloneForeignObject.children.item(childIndex);
+      if (cloneChild) inlineComputedStyles(child, cloneChild);
+    });
+  });
+  prepareForeignObjectHtml(clone);
+
+  const svg = new XMLSerializer().serializeToString(clone);
+  const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+  const svgUrl = URL.createObjectURL(svgBlob);
+
+  try {
+    const image = await loadImage(svgUrl);
+    const scale = Math.max(2, window.devicePixelRatio || 1);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(width * scale);
+    canvas.height = Math.ceil(height * scale);
+
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Could not create dependency graph PNG.');
+
+    context.scale(scale, scale);
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+
+    const pngBlob = await canvasToBlob(canvas);
+    const pngUrl = URL.createObjectURL(pngBlob);
+    const link = document.createElement('a');
+    link.href = pngUrl;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(pngUrl);
+  } finally {
+    URL.revokeObjectURL(svgUrl);
+  }
+}
+
 function ClockIcon({ className }: { className: string }) {
   return (
     <svg
@@ -140,6 +249,10 @@ function ClockIcon({ className }: { className: string }) {
       />
     </svg>
   );
+}
+
+function formatDuration(duration: number) {
+  return `${duration}\u00a0day${duration === 1 ? '' : 's'}`;
 }
 
 function TaskNodeCard({
@@ -201,7 +314,7 @@ function TaskNodeCard({
 
           <div className='min-w-0 flex-1 pt-0.5'>
             <div className='flex min-w-0 items-start gap-2'>
-              <div className='min-w-0 flex-1 whitespace-normal break-words text-[13px] leading-5 font-bold text-slate-800'>
+              <div className='min-w-0 flex-1 truncate text-[13px] leading-5 font-bold text-slate-800'>
                 {task.name}
               </div>
               {isCritical ? (
@@ -218,13 +331,13 @@ function TaskNodeCard({
 
             <div
               className={[
-                'mt-1 flex w-fit items-center gap-1.5 text-[11px] leading-4 font-semibold',
+                'mt-1 flex min-w-[54px] w-max items-center gap-1.5 whitespace-nowrap text-[11px] leading-4 font-semibold',
                 tone.muted,
               ].join(' ')}
             >
               <ClockIcon className='h-3.5 w-3.5 shrink-0' />
-              <span>
-                {task.duration} day{task.duration === 1 ? '' : 's'}
+              <span className='whitespace-nowrap'>
+                {formatDuration(task.duration)}
               </span>
             </div>
           </div>
@@ -283,6 +396,9 @@ export function DependencyGraph({
   result,
   variant = 'card',
 }: DependencyGraphProps) {
+  const svgRef = React.useRef<SVGSVGElement>(null);
+  const [isSaving, setIsSaving] = React.useState(false);
+
   if (tasks.length === 0) {
     return (
       <div className='flex h-40 items-center justify-center rounded-lg border border-dashed border-border'>
@@ -310,6 +426,19 @@ export function DependencyGraph({
     }
   }
 
+  const handleSavePng = async () => {
+    if (!svgRef.current) return;
+
+    try {
+      setIsSaving(true);
+      await saveSvgAsPng(svgRef.current, 'dependency-graph.png');
+    } catch (error) {
+      logger(error, 'Failed to save dependency graph as PNG');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const C = {
     critEdge: '#fda4af',
     normEdge: '#cbd5e1',
@@ -332,146 +461,168 @@ export function DependencyGraph({
   };
 
   return (
-    <div
-      className={[
-        'overflow-auto rounded-lg border border-border bg-white dark:bg-card',
-        variant === 'full' ? 'p-2' : 'p-4',
-      ].join(' ')}
-    >
-      <svg
-        width={svgW}
-        height={svgH}
-        viewBox={`0 0 ${svgW} ${svgH}`}
-        className='block'
-        aria-label='Task dependency graph'
+    <div className='space-y-3'>
+      <div className='flex justify-end'>
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          leftIcon={Download}
+          isLoading={isSaving}
+          onClick={handleSavePng}
+        >
+          Save PNG
+        </Button>
+      </div>
+
+      <div
+        className={[
+          'overflow-auto rounded-lg border border-border bg-white dark:bg-card',
+          variant === 'full' ? 'p-2' : 'p-4',
+        ].join(' ')}
       >
-        <defs>
-          <filter id='node-shadow' x='-20%' y='-20%' width='140%' height='150%'>
-            <feDropShadow
-              dx='0'
-              dy='7'
-              stdDeviation='7'
-              floodColor='#0f172a'
-              floodOpacity='0.1'
-            />
-          </filter>
-          <marker
-            id='arrow-normal'
-            markerWidth='14'
-            markerHeight='12'
-            refX='11'
-            refY='5'
-            orient='auto'
-          >
-            <polygon points='0 0, 12 5, 0 10' fill={C.normEdge} />
-          </marker>
-          <marker
-            id='arrow-critical'
-            markerWidth='14'
-            markerHeight='12'
-            refX='11'
-            refY='5'
-            orient='auto'
-          >
-            <polygon points='0 0, 12 5, 0 10' fill={C.critEdge} />
-          </marker>
-        </defs>
-
-        <rect width={svgW} height={svgH} fill='#ffffff' />
-
-        {Array.from({ length: maxLevel }, (_, lv) => {
-          const x = PAD_X + (lv + 1) * NODE_W + lv * COL_GAP + COL_GAP / 2;
-          return (
-            <line
-              key={`divider-${lv}`}
-              x1={x}
-              y1={16}
-              x2={x}
-              y2={svgH - 16}
-              stroke={C.levelLine}
-              strokeDasharray='7 9'
-              strokeOpacity={0.78}
-            />
-          );
-        })}
-
-        {Array.from({ length: maxLevel + 1 }, (_, lv) => {
-          const cx = PAD_X + lv * (NODE_W + COL_GAP) + NODE_W / 2;
-          return (
-            <g key={`lv-${lv}`}>
-              <text
-                x={cx}
-                y={LEVEL_LABEL_Y}
-                textAnchor='middle'
-                fontSize={9.5}
-                fontWeight={600}
-                fill={C.levelText}
-                fontFamily='ui-monospace, monospace'
-                letterSpacing='1'
-              >
-                LEVEL {lv}
-              </text>
-              <line
-                x1={cx - 40}
-                y1={LEVEL_LABEL_Y + 12}
-                x2={cx + 40}
-                y2={LEVEL_LABEL_Y + 12}
-                stroke={C.levelLine}
-                strokeWidth={1}
-              />
-            </g>
-          );
-        })}
-
-        {edges.map(({ from, to }) => {
-          const src = positions.get(from);
-          const tgt = positions.get(to);
-          if (!src || !tgt) return null;
-          const isCriticalEdge = criticalSet.has(from) && criticalSet.has(to);
-          return (
-            <path
-              key={`${from}-${to}`}
-              d={edgePath(src, tgt)}
-              fill='none'
-              stroke={isCriticalEdge ? C.critEdge : C.normEdge}
-              strokeWidth={isCriticalEdge ? 2.5 : 1.5}
-              strokeDasharray={isCriticalEdge ? undefined : '5 5'}
-              strokeLinecap='round'
-              strokeLinejoin='round'
-              markerEnd={
-                isCriticalEdge ? 'url(#arrow-critical)' : 'url(#arrow-normal)'
-              }
-            />
-          );
-        })}
-
-        {tasks.map((task) => {
-          const pos = positions.get(task.id);
-          if (!pos) return null;
-          const isCritical = criticalSet.has(task.id);
-          const x = pos.cx - NODE_W / 2;
-          const y = pos.cy - NODE_H / 2;
-          const st = scheduledMap.get(task.id);
-
-          return (
-            <foreignObject
-              key={task.id}
-              x={x - 14}
-              y={y - 14}
-              width={NODE_W + 28}
-              height={NODE_H + 28}
+        <svg
+          ref={svgRef}
+          width={svgW}
+          height={svgH}
+          viewBox={`0 0 ${svgW} ${svgH}`}
+          className='block'
+          aria-label='Task dependency graph'
+        >
+          <defs>
+            <filter
+              id='node-shadow'
+              x='-20%'
+              y='-20%'
+              width='140%'
+              height='150%'
             >
-              <div className='h-full p-3.5'>
-                <TaskNodeCard
-                  isCritical={isCritical}
-                  scheduledTask={st}
-                  task={task}
+              <feDropShadow
+                dx='0'
+                dy='7'
+                stdDeviation='7'
+                floodColor='#0f172a'
+                floodOpacity='0.1'
+              />
+            </filter>
+            <marker
+              id='arrow-normal'
+              markerWidth='14'
+              markerHeight='12'
+              refX='11'
+              refY='5'
+              orient='auto'
+            >
+              <polygon points='0 0, 12 5, 0 10' fill={C.normEdge} />
+            </marker>
+            <marker
+              id='arrow-critical'
+              markerWidth='14'
+              markerHeight='12'
+              refX='11'
+              refY='5'
+              orient='auto'
+            >
+              <polygon points='0 0, 12 5, 0 10' fill={C.critEdge} />
+            </marker>
+          </defs>
+
+          <rect width={svgW} height={svgH} fill='#ffffff' />
+
+          {Array.from({ length: maxLevel }, (_, lv) => {
+            const x = PAD_X + (lv + 1) * NODE_W + lv * COL_GAP + COL_GAP / 2;
+            return (
+              <line
+                key={`divider-${lv}`}
+                x1={x}
+                y1={16}
+                x2={x}
+                y2={svgH - 16}
+                stroke={C.levelLine}
+                strokeDasharray='7 9'
+                strokeOpacity={0.78}
+              />
+            );
+          })}
+
+          {Array.from({ length: maxLevel + 1 }, (_, lv) => {
+            const cx = PAD_X + lv * (NODE_W + COL_GAP) + NODE_W / 2;
+            return (
+              <g key={`lv-${lv}`}>
+                <text
+                  x={cx}
+                  y={LEVEL_LABEL_Y}
+                  textAnchor='middle'
+                  fontSize={9.5}
+                  fontWeight={600}
+                  fill={C.levelText}
+                  fontFamily='ui-monospace, monospace'
+                  letterSpacing='1'
+                >
+                  LEVEL {lv}
+                </text>
+                <line
+                  x1={cx - 40}
+                  y1={LEVEL_LABEL_Y + 12}
+                  x2={cx + 40}
+                  y2={LEVEL_LABEL_Y + 12}
+                  stroke={C.levelLine}
+                  strokeWidth={1}
                 />
-              </div>
-            </foreignObject>
-          );
-        })}
-      </svg>
+              </g>
+            );
+          })}
+
+          {edges.map(({ from, to }) => {
+            const src = positions.get(from);
+            const tgt = positions.get(to);
+            if (!src || !tgt) return null;
+            const isCriticalEdge = criticalSet.has(from) && criticalSet.has(to);
+            return (
+              <path
+                key={`${from}-${to}`}
+                d={edgePath(src, tgt)}
+                fill='none'
+                stroke={isCriticalEdge ? C.critEdge : C.normEdge}
+                strokeWidth={isCriticalEdge ? 2.5 : 1.5}
+                strokeDasharray={isCriticalEdge ? undefined : '5 5'}
+                strokeLinecap='round'
+                strokeLinejoin='round'
+                markerEnd={
+                  isCriticalEdge ? 'url(#arrow-critical)' : 'url(#arrow-normal)'
+                }
+              />
+            );
+          })}
+
+          {tasks.map((task) => {
+            const pos = positions.get(task.id);
+            if (!pos) return null;
+            const isCritical = criticalSet.has(task.id);
+            const x = pos.cx - NODE_W / 2;
+            const y = pos.cy - NODE_H / 2;
+            const st = scheduledMap.get(task.id);
+
+            return (
+              <foreignObject
+                key={task.id}
+                x={x - 14}
+                y={y - 14}
+                width={NODE_W + 28}
+                height={NODE_H + 28}
+              >
+                <div className='h-full p-3.5'>
+                  <TaskNodeCard
+                    isCritical={isCritical}
+                    scheduledTask={st}
+                    task={task}
+                  />
+                </div>
+              </foreignObject>
+            );
+          })}
+        </svg>
+      </div>
     </div>
   );
 }
