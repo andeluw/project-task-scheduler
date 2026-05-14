@@ -1,14 +1,12 @@
 'use client';
 
-import * as React from 'react';
-
 import { Card, CardContent } from '@/components/card';
 import { Typography } from '@/components/typography';
 
-import { CpmResult, Task } from '@/types/task';
+import { CpmResult, ScheduledTask, Task } from '@/types/task';
 
-const NODE_W = 210;
-const NODE_H = 112;
+const NODE_W = 250;
+const NODE_H = 130;
 const COL_GAP = 100;
 const ROW_GAP = 44;
 const PAD_X = 32;
@@ -74,40 +72,6 @@ interface NodePos {
   cy: number;
 }
 
-function wrapText(text: string, maxChars: number, maxLines: number) {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-
-  for (const word of words) {
-    const current = lines.at(-1);
-    if (!current) {
-      lines.push(word);
-      continue;
-    }
-
-    if (`${current} ${word}`.length <= maxChars) {
-      lines[lines.length - 1] = `${current} ${word}`;
-    } else {
-      lines.push(word);
-    }
-  }
-
-  const limited = lines.slice(0, maxLines);
-  const overflow =
-    lines.length > maxLines || limited.some((line) => line.length > maxChars);
-
-  return limited.map((line, index) => {
-    const clipped =
-      line.length > maxChars ? `${line.slice(0, maxChars - 3)}...` : line;
-
-    if (overflow && index === maxLines - 1 && !clipped.endsWith('...')) {
-      return `${clipped.slice(0, maxChars - 3)}...`;
-    }
-
-    return clipped;
-  });
-}
-
 function computePositions(
   tasks: Task[],
   levels: Map<string, number>,
@@ -158,26 +122,153 @@ function edgePath(src: NodePos, tgt: NodePos): string {
   return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
 }
 
-function ClockIcon({ color, x, y }: { color: string; x: number; y: number }) {
+function ClockIcon({ className }: { className: string }) {
   return (
-    <g>
-      <circle
-        cx={x}
-        cy={y}
-        r={6.5}
-        fill='none'
-        stroke={color}
-        strokeWidth={1.7}
-      />
+    <svg
+      className={className}
+      viewBox='0 0 16 16'
+      fill='none'
+      aria-hidden='true'
+    >
+      <circle cx='8' cy='8' r='6' stroke='currentColor' strokeWidth='1.8' />
       <path
-        d={`M ${x} ${y - 3.5} L ${x} ${y + 0.5} L ${x + 3.2} ${y + 2.2}`}
-        fill='none'
-        stroke={color}
+        d='M8 4.8V8l2.4 1.6'
+        stroke='currentColor'
         strokeLinecap='round'
         strokeLinejoin='round'
-        strokeWidth={1.7}
+        strokeWidth='1.8'
       />
-    </g>
+    </svg>
+  );
+}
+
+function TaskNodeCard({
+  isCritical,
+  scheduledTask,
+  task,
+}: {
+  isCritical: boolean;
+  scheduledTask?: ScheduledTask;
+  task: Task;
+}) {
+  const tone = isCritical
+    ? {
+        accent: 'bg-rose-300',
+        avatar: 'bg-rose-400',
+        badge: 'border-rose-200 bg-rose-100 text-rose-600',
+        border: 'border-rose-300',
+        card: 'bg-rose-50/70',
+        divider: 'border-rose-200',
+        metric: 'text-rose-700',
+        muted: 'text-rose-600',
+      }
+    : {
+        accent: 'bg-slate-300',
+        avatar: 'bg-slate-400',
+        badge: '',
+        border: 'border-slate-200',
+        card: 'bg-white',
+        divider: 'border-slate-100',
+        metric: 'text-slate-700',
+        muted: 'text-slate-500',
+      };
+
+  return (
+    <div
+      className={[
+        'relative h-full rounded-[10px] border px-4 py-3 shadow-[0_12px_22px_rgba(15,23,42,0.09)]',
+        tone.border,
+        tone.card,
+      ].join(' ')}
+    >
+      <div
+        className={[
+          'absolute top-0 left-0 h-full w-1.5 rounded-l-[10px]',
+          tone.accent,
+        ].join(' ')}
+      />
+
+      <div className='flex h-full min-w-0 flex-col'>
+        <div className='flex min-w-0 items-start gap-3'>
+          <div
+            className={[
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white',
+              tone.avatar,
+            ].join(' ')}
+          >
+            {task.id}
+          </div>
+
+          <div className='min-w-0 flex-1 pt-0.5'>
+            <div className='flex min-w-0 items-start gap-2'>
+              <div className='min-w-0 flex-1 whitespace-normal break-words text-[13px] leading-5 font-bold text-slate-800'>
+                {task.name}
+              </div>
+              {isCritical ? (
+                <div
+                  className={[
+                    'shrink-0 rounded-full border px-1.5 py-0.5 text-[8px] leading-3 font-bold',
+                    tone.badge,
+                  ].join(' ')}
+                >
+                  CRITICAL
+                </div>
+              ) : null}
+            </div>
+
+            <div
+              className={[
+                'mt-1 flex w-fit items-center gap-1.5 text-[11px] leading-4 font-semibold',
+                tone.muted,
+              ].join(' ')}
+            >
+              <ClockIcon className='h-3.5 w-3.5 shrink-0' />
+              <span>
+                {task.duration} day{task.duration === 1 ? '' : 's'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className={['mt-3 border-t pt-2', tone.divider].join(' ')}>
+          {scheduledTask ? (
+            <div className='grid grid-cols-4 gap-2'>
+              {[
+                { label: 'ES', value: scheduledTask.earliestStart },
+                { label: 'EF', value: scheduledTask.earliestFinish },
+                { label: 'LF', value: scheduledTask.latestFinish },
+                { label: 'SLK', value: scheduledTask.float },
+              ].map(({ label, value }) => (
+                <div key={label} className='min-w-0'>
+                  <div
+                    className={[
+                      'text-[9px] leading-3 font-bold tracking-wide',
+                      tone.muted,
+                    ].join(' ')}
+                  >
+                    {label}
+                  </div>
+                  <div
+                    className={[
+                      'mt-0.5 text-[12px] leading-4 font-bold',
+                      label === 'SLK' && value === 0
+                        ? 'text-rose-600'
+                        : tone.metric,
+                    ].join(' ')}
+                  >
+                    {value}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className='text-center text-[11px] font-medium text-slate-400'>
+              Calculate to see schedule
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -362,137 +453,22 @@ export function DependencyGraph({
           const y = pos.cy - NODE_H / 2;
           const st = scheduledMap.get(task.id);
 
-          const borderColor = isCritical ? C.critBorder : C.normBorder;
-          const fillColor = isCritical ? C.critFill : C.normFill;
-          const idBg = isCritical ? C.critIdBg : C.normIdBg;
-          const titleColor = isCritical ? C.critText : C.normText;
-          const subColor = isCritical ? C.critSub : C.normSub;
-          const labelColor = isCritical ? C.critMuted : C.normMuted;
-          const dividerColor = isCritical ? C.divCrit : C.divNorm;
-          const titleLines = wrapText(task.name, 19, 2);
-
           return (
-            <g key={task.id}>
-              <rect
-                x={x}
-                y={y}
-                width={NODE_W}
-                height={NODE_H}
-                rx={10}
-                ry={10}
-                fill={fillColor}
-                stroke={borderColor}
-                strokeWidth={isCritical ? 1.75 : 1}
-                filter='url(#node-shadow)'
-              />
-              <rect
-                x={x}
-                y={y}
-                width={6}
-                height={NODE_H}
-                rx={3}
-                ry={3}
-                fill={isCritical ? C.critEdge : C.normEdge}
-              />
-
-              <circle cx={x + 32} cy={y + 32} r={17} fill={idBg} />
-              <text
-                x={x + 32}
-                y={y + 33}
-                textAnchor='middle'
-                dominantBaseline='central'
-                fontSize={14}
-                fontWeight={700}
-                fill='#ffffff'
-                fontFamily='ui-monospace, monospace'
-              >
-                {task.id}
-              </text>
-
-              {titleLines.map((line, index) => (
-                <text
-                  key={`${task.id}-title-${index}`}
-                  x={x + 58}
-                  y={y + 25 + index * 14}
-                  fontSize={12}
-                  fontWeight={700}
-                  fill={titleColor}
-                  fontFamily='Inter, ui-sans-serif, system-ui'
-                >
-                  {line}
-                </text>
-              ))}
-
-              <ClockIcon color={subColor} x={x + 63} y={y + 55} />
-              <text
-                x={x + 74}
-                y={y + 59}
-                fontSize={10.5}
-                fontWeight={600}
-                fill={subColor}
-                fontFamily='ui-monospace, monospace'
-              >
-                {task.duration} day{task.duration === 1 ? '' : 's'}
-              </text>
-
-              <line
-                x1={x + 16}
-                y1={y + 68}
-                x2={x + NODE_W - 16}
-                y2={y + 68}
-                stroke={dividerColor}
-                strokeWidth={1}
-              />
-
-              {st ? (
-                <>
-                  {[
-                    { label: 'ES', value: st.earliestStart, dx: 24 },
-                    { label: 'EF', value: st.earliestFinish, dx: 72 },
-                    { label: 'LF', value: st.latestFinish, dx: 120 },
-                    { label: 'SLK', value: st.float, dx: 168 },
-                  ].map(({ label, value, dx }) => (
-                    <React.Fragment key={label}>
-                      <text
-                        x={x + dx}
-                        y={y + 86}
-                        fontSize={8.5}
-                        fontWeight={600}
-                        fill={labelColor}
-                        fontFamily='ui-monospace, monospace'
-                        letterSpacing='0.4'
-                      >
-                        {label}
-                      </text>
-                      <text
-                        x={x + dx}
-                        y={y + 101}
-                        fontSize={11}
-                        fontWeight={600}
-                        fill={
-                          label === 'SLK' && value === 0
-                            ? C.critMuted
-                            : titleColor
-                        }
-                        fontFamily='ui-monospace, monospace'
-                      >
-                        {value}
-                      </text>
-                    </React.Fragment>
-                  ))}
-                </>
-              ) : (
-                <text
-                  x={x + NODE_W / 2}
-                  y={y + 92}
-                  textAnchor='middle'
-                  fontSize={9.5}
-                  fill={C.normMuted}
-                >
-                  Calculate to see schedule
-                </text>
-              )}
-            </g>
+            <foreignObject
+              key={task.id}
+              x={x - 14}
+              y={y - 14}
+              width={NODE_W + 28}
+              height={NODE_H + 28}
+            >
+              <div className='h-full p-3.5'>
+                <TaskNodeCard
+                  isCritical={isCritical}
+                  scheduledTask={st}
+                  task={task}
+                />
+              </div>
+            </foreignObject>
           );
         })}
       </svg>
