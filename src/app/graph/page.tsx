@@ -1,19 +1,20 @@
 'use client';
 
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, CalendarDays, CheckSquare, Crosshair } from 'lucide-react';
 import Link from 'next/link';
 import * as React from 'react';
-
-import { computeCpm, isCpmError } from '@/lib/cpm';
 
 import { sampleTasks } from '@/data/sampleTasks';
 
 import { Button } from '@/components/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/card';
+import { Typography } from '@/components/typography';
+
+import { computeCpm, isCpmError } from '@/algorithms/cpm';
 import {
   DependencyGraph,
   DependencyGraphLegend,
-} from '@/components/DependencyGraph';
-import { Typography } from '@/components/typography';
+} from '@/app/graph/components/DependencyGraph';
 
 import { CpmResult } from '@/types/task';
 
@@ -25,8 +26,8 @@ export default function GraphPage() {
 
   return (
     <main className='min-h-screen bg-background'>
-      <div className='mx-auto max-w-[1800px] px-6 py-6'>
-        <div className='mb-4 flex flex-wrap items-end justify-between gap-4'>
+      <div className='dashboard-layout py-8'>
+        <div className='mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-border pb-4'>
           <div>
             <Link href='/'>
               <Button variant='ghost' size='sm' leftIcon={ArrowLeft}>
@@ -36,73 +37,88 @@ export default function GraphPage() {
             <Typography as='h1' variant='j2' className='mt-2 text-foreground'>
               Dependency Graph
             </Typography>
-            <Typography variant='b3' color='secondary'>
+            <Typography as='h2' variant='h4' className='mt-1 text-primary-700'>
               Critical path highlighted in red · Nodes laid out by topological
               level
             </Typography>
           </div>
 
           {result && (
-            <div className='flex gap-3'>
-              <Stat label='Duration' value={`${result.projectDuration}d`} />
+            <div className='grid w-full grid-cols-1 gap-3 sm:w-auto sm:grid-cols-3'>
               <Stat
+                icon={CalendarDays}
+                label='Duration'
+                value={`${result.projectDuration}d`}
+              />
+              <Stat
+                icon={Crosshair}
                 label='Critical'
                 value={result.criticalPath.length}
-                tone='rose'
               />
-              <Stat label='Tasks' value={result.scheduledTasks.length} />
+              <Stat
+                icon={CheckSquare}
+                label='Tasks'
+                value={result.scheduledTasks.length}
+              />
             </div>
           )}
         </div>
 
-        <div className='mb-3'>
+        <div className='mb-4'>
           <DependencyGraphLegend />
         </div>
 
-        <DependencyGraph tasks={sampleTasks} result={result} variant='full' />
+        <Card>
+          <CardHeader className='pb-3'>
+            <CardTitle>Task Dependencies</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DependencyGraph
+              tasks={sampleTasks}
+              result={result}
+              variant='full'
+            />
+          </CardContent>
+        </Card>
 
-        {result && (
-          <div className='mt-4 rounded-lg border border-rose-200 bg-rose-50/60 px-4 py-3'>
-            <Typography variant='s4' className='text-rose-600'>
-              Critical Path
+        <Card className='mt-5'>
+          <CardHeader className='pb-2'>
+            <CardTitle>How to read this graph</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Typography variant='b3' color='secondary'>
+              Tasks flow from left to right by topological level. The red path
+              represents the critical path (zero slack).
             </Typography>
-            <Typography variant='h6' className='mt-1 font-mono text-rose-700'>
-              {result.criticalPath.join(' → ')}
-            </Typography>
-          </div>
-        )}
+          </CardContent>
+        </Card>
       </div>
     </main>
   );
 }
 
 function Stat({
+  icon: Icon,
   label,
   value,
-  tone,
 }: {
+  icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: React.ReactNode;
-  tone?: 'rose';
 }) {
   return (
-    <div
-      className={[
-        'rounded-lg border px-4 py-2 text-center',
-        tone === 'rose'
-          ? 'border-rose-200 bg-rose-50/60'
-          : 'border-border bg-muted/30',
-      ].join(' ')}
-    >
-      <Typography
-        variant='h3'
-        className={tone === 'rose' ? 'text-rose-600' : 'text-foreground'}
-      >
-        {value}
-      </Typography>
-      <Typography variant='c1' color='secondary'>
-        {label}
-      </Typography>
-    </div>
+    <Card className='min-w-0 shadow-none'>
+      <CardContent className='flex items-center gap-3 p-3'>
+        <Icon className='h-5 w-5 shrink-0 text-primary-700' />
+        <div className='min-w-0'>
+          <Typography variant='h3' className='break-words text-foreground'>
+            {value}
+          </Typography>
+          <Typography variant='c1' color='secondary' className='break-words'>
+            {label}
+          </Typography>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

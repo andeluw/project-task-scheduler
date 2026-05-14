@@ -1,22 +1,22 @@
 import { CpmError, CpmResult, ScheduledTask, Task } from '@/types/task';
 
-function validateTasks(tasks: Task[]): CpmError | null {
+function validateCpmInput(tasks: Task[]): CpmError | null {
   const ids = new Set<string>();
 
   for (const task of tasks) {
     if (!task.id.trim()) {
-      return { message: 'Every task must have a non-empty ID.' };
+      return { message: 'Each graph vertex must have a non-empty task ID.' };
     }
     if (ids.has(task.id)) {
       return {
-        message: `Duplicate task ID "${task.id}". All IDs must be unique.`,
+        message: `Duplicate vertex "${task.id}". Task IDs must be unique.`,
       };
     }
     ids.add(task.id);
 
     if (task.duration < 0) {
       return {
-        message: `Task "${task.id}" has a negative duration. Duration must be ≥ 0.`,
+        message: `Task "${task.id}" has a negative duration. CPM requires non-negative task weights.`,
       };
     }
 
@@ -24,7 +24,7 @@ function validateTasks(tasks: Task[]): CpmError | null {
     for (const dep of task.dependencies) {
       if (depSet.has(dep)) {
         return {
-          message: `Task "${task.id}" has duplicate dependency "${dep}".`,
+          message: `Task "${task.id}" has duplicate incoming edge "${dep}".`,
         };
       }
       depSet.add(dep);
@@ -35,11 +35,11 @@ function validateTasks(tasks: Task[]): CpmError | null {
     for (const dep of task.dependencies) {
       if (!ids.has(dep)) {
         return {
-          message: `Task "${task.id}" references unknown dependency "${dep}". Add that task first.`,
+          message: `Task "${task.id}" references unknown predecessor vertex "${dep}".`,
         };
       }
       if (dep === task.id) {
-        return { message: `Task "${task.id}" cannot depend on itself.` };
+        return { message: `Task "${task.id}" cannot contain a self-loop.` };
       }
     }
   }
@@ -195,7 +195,7 @@ function backwardPass(
 export function computeCpm(tasks: Task[]): CpmResult | CpmError {
   const steps: string[] = [];
 
-  const validationError = validateTasks(tasks);
+  const validationError = validateCpmInput(tasks);
   if (validationError) return validationError;
 
   steps.push(
@@ -217,7 +217,7 @@ export function computeCpm(tasks: Task[]): CpmResult | CpmError {
   if (hasCycle) {
     return {
       message:
-        'A cycle was detected in the task dependencies. CPM requires a Directed Acyclic Graph (DAG). Please remove the circular dependency.',
+        'A cycle was detected in the task dependencies. CPM requires a Directed Acyclic Graph (DAG).',
       cycleDetected: true,
     };
   }

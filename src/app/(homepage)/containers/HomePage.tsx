@@ -5,17 +5,18 @@ import { Network } from 'lucide-react';
 import Link from 'next/link';
 import * as React from 'react';
 
-import { computeCpm, isCpmError } from '@/lib/cpm';
-
 import { sampleTasks } from '@/data/sampleTasks';
 
 import { Button } from '@/components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/card';
-import { GanttChart } from '@/components/GanttChart';
 import { Table } from '@/components/table/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/tabs';
-import { TaskTable } from '@/components/TaskTable';
 import { Typography } from '@/components/typography';
+
+import { computeCpm, isCpmError } from '@/algorithms/cpm';
+import { AlgorithmTrace } from '@/app/(homepage)/components/AlgorithmTrace';
+import { GanttChart } from '@/app/(homepage)/components/GanttChart';
+import { TaskTable } from '@/app/(homepage)/components/TaskTable';
 
 import { CpmResult, ScheduledTask, Task } from '@/types/task';
 
@@ -157,28 +158,6 @@ const scheduledColumns: ColumnDef<ScheduledTask>[] = [
       ),
   },
 ];
-
-function AlgorithmTrace({ result }: { result: CpmResult }) {
-  return (
-    <div className='rounded-lg border border-primary-200 bg-primary-50/40 p-4'>
-      <Typography as='h3' variant='h6' className='mb-3 text-primary-800'>
-        Algorithm Trace
-      </Typography>
-      <ol className='space-y-1'>
-        {result.steps.map((step, i) => (
-          <li key={i} className='flex gap-2 text-xs'>
-            <span className='mt-px shrink-0 font-mono text-primary-400'>
-              {String(i + 1).padStart(2, '0')}
-            </span>
-            <Typography as='span' variant='c1' className='text-slate-700'>
-              {step}
-            </Typography>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
 
 export default function HomePage() {
   const [tasks, setTasks] = React.useState<Task[]>(() =>
